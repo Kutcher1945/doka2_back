@@ -1,0 +1,29 @@
+node_modules/
+.idea/
+.venv/
+client/.nuxt/
+client/node_modules/
+client/node_modules/dist
+venv/
+
+package-lock.json
+package.json
+.gitlab-ci.yml
+
+#api/db.sqlite3
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*/__pycache__/
+*/__pycache__/*
+*__pychache/
+*.py[cod]
+*.pyc
+*.pyo
+**/__pycache__/*
+celerybeat-schedule
+
+# Environment variables - contains sensitive data
+*.env
+.env
+core/.env

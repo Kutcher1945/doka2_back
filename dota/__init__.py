@@ -1,0 +1,2 @@
+class StopTaskException(Exception):
+    pass
