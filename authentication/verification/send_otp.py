@@ -1,7 +1,10 @@
+import logging
 import os
 
 from twilio.base.exceptions import TwilioRestException
 from twilio.rest import Client
+
+logger = logging.getLogger(__name__)
 
 client = Client(os.environ['TWILIO_ACCOUNT_SID'], os.environ['TWILIO_AUTH_TOKEN'])
 verify = client.verify.services(os.environ['TWILIO_VERIFY_SERVICE_SID'])
@@ -15,6 +18,6 @@ def check_verification_code(phone, code):
     try:
         result = verify.verification_checks.create(to=phone, code=code)
     except TwilioRestException:
-        print('no')
+        logger.warning('Twilio verification check failed for phone %s', phone)
         return False
     return result.status == 'approved'

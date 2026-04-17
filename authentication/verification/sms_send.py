@@ -1,12 +1,15 @@
+import logging
+import os
 import random
-import sys
 
 import requests
 from lxml import objectify as xml_objectify
 
+logger = logging.getLogger(__name__)
+
 SMS_TEXT = 'Номер подтверждения: '
-SMS_TRAFFIC_LOGIN = 'rid_kz'
-SMS_TRAFFIC_PASS = 'u86w24Wk'
+SMS_TRAFFIC_LOGIN = os.environ.get('SMS_TRAFFIC_LOGIN', '')
+SMS_TRAFFIC_PASS = os.environ.get('SMS_TRAFFIC_PASS', '')
 SMS_TRAFFIC_URL = 'http://api.smstraffic.ru/multi.php'
 
 
@@ -43,7 +46,6 @@ def get_phone_number(number):
         normal_number = [int(s) for s in number if s.isdigit()]
         strings = [str(integer) for integer in normal_number]
         final_number = "".join(strings)
-        # final_number = int(a_string)
     if isinstance(number, int):
         final_number = number
     return final_number
@@ -68,7 +70,7 @@ def sms_sending(phone, sms_code, sms_text, sms_login, sms_password, ignore_phone
                                  headers={'Connection': 'close'})
 
     except Exception as e:
-        print(e.args[0] + ' sms_sending   Line-> ' + str(sys.exc_info()[2].tb_lineno))
+        logger.exception('sms_sending failed: %s', e)
         response = 'No connection with sms center'
 
     return response

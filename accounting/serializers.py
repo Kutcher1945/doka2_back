@@ -1,5 +1,5 @@
 from rest_framework.serializers import ModelSerializer
-from .models import *
+from .models import Accounting, AccountingHistory
 
 
 class AccountingSerializer(ModelSerializer):
@@ -11,5 +11,4 @@ class AccountingSerializer(ModelSerializer):
 class AccountingHistorySerializer(ModelSerializer):
     class Meta:
         model = AccountingHistory
-        fields = ('id', 'balance', 'bonus_balance', 'blocked_balance', 'currency', 'payout_commission')
-
+        fields = ('id', 'accounting', 'lobby', 'datetime', 'service_earning', 'user')

@@ -1,9 +1,10 @@
 import pusher
+from django.conf import settings
 
 pusher_client = pusher.Pusher(
-  app_id='1538995',
-  key='ae00dcfed3c3f2c1df92',
-  secret='1236b7ca35a59fc40698',
-  cluster='ap2',
-  ssl=True
+    app_id=settings.PUSHER_APP_ID,
+    key=settings.PUSHER_KEY,
+    secret=settings.PUSHER_SECRET,
+    cluster=settings.PUSHER_CLUSTER,
+    ssl=True,
 )

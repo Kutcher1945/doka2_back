@@ -1,65 +1,64 @@
-from rest_framework import generics, permissions
-from rest_framework import viewsets, views
+from rest_framework import generics, permissions, status, views, viewsets
 from rest_framework.response import Response
 
 from authentication import UserOnlineStatuses
 from payments.monetix.models import UserWallet
-from .serializers import *
+from .serializers import CustomUserSerializer, CustomUserRetrieveSerializer
+from .models import CustomUser
 from .verification.models import UserVerification
 
 
 class CustomUserModelViewSet(viewsets.ModelViewSet):
+    """
+    User CRUD ViewSet.
+
+    - create  (POST)  — public, no auth required (registration)
+    - all other actions — require authentication
+    """
     serializer_class = CustomUserSerializer
-    permission_classes = (permissions.AllowAny,)
     queryset = CustomUser.objects.all()
+
+    def get_permissions(self):
+        if self.action == 'create':
+            return [permissions.AllowAny()]
+        return [permissions.IsAuthenticated()]
 
     def perform_create(self, serializer):
         instance = serializer.save()
         instance.set_password(instance.password)
-        # send_otp.send_verification_sms(instance.cleaned_data.get('phone_number'))
-        user_wallet = UserWallet.objects.create(
-            user=instance
-        )
-        user_verification = UserVerification.objects.create(
-            user=instance
-        )
 
-        instance.user_wallet = user_wallet
+        # UserWallet.user is a FK to CustomUser — no need to store it back on the user.
+        UserWallet.objects.create(user=instance)
+        user_verification = UserVerification.objects.create(user=instance)
+
         instance.verification = user_verification
-
         instance.save()
 
 
 class UserRetrieveUpdateDestroyAPIView(generics.RetrieveUpdateDestroyAPIView):
     queryset = CustomUser.objects.all()
     serializer_class = CustomUserRetrieveSerializer
-    permission_classes = (permissions.IsAuthenticated,)
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_object(self):
         return self.request.user
 
-    def get_user(self, user_id):
-        try:
-            return get_user_model().objects.get(pk=user_id)
-        except CustomUser.DoesNotExist:
-            return None
-
 
 class UserOnlineStatusesView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
         choices = UserOnlineStatuses.choices
-        result = [{'name': name, 'code': code} for code, name in choices]
-        return Response(result)
+        return Response([{'name': name, 'code': code} for code, name in choices])
 
 
 class UserSetStatusView(views.APIView):
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
-        user = request.user
-        status = request.data.get('status', 'ONLINE')
-        if status not in UserOnlineStatuses.values:
-            return Response(status=400, data={"error": "Status not found!"})
-        user.online_status = status
-        user.save()
-        return Response(status=200)
+        status_value = request.data.get('status', 'ONLINE')
+        if status_value not in UserOnlineStatuses.values:
+            return Response({'error': 'Status not found.'}, status=status.HTTP_400_BAD_REQUEST)
+        request.user.online_status = status_value
+        request.user.save()
+        return Response(status=status.HTTP_200_OK)

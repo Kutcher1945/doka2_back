@@ -33,7 +33,7 @@ def get_game_count(user_id: int) -> int:
         game_count = GameHistory.objects.filter(players_info__user__id=user_id,
                                                 finish_game__gt=last_payout.pay_time).count()
 
-    print("game_count: %s " % game_count)
+    logger.debug('game_count: %s', game_count)
     return game_count
 
 
@@ -53,8 +53,7 @@ def get_floating_commission(game_count: int) -> float:
         commission = 10.0
     else:
         commission = 5.0
-    print("commission: %s " % commission)
-
+    logger.debug('commission: %s', commission)
     return commission
 
 
@@ -75,8 +74,7 @@ def get_game_count_to_reduce_commission(game_count: int) -> int:
         games_to_reduce = 6 - game_count
     else:
         games_to_reduce = -1  # Commission already reduced
-    print("games_to_reduce: %s " % games_to_reduce)
-
+    logger.debug('games_to_reduce: %s', games_to_reduce)
     return games_to_reduce
 
 
@@ -134,8 +132,8 @@ def distribute_funds_back_to_user(user: UserWallet, lobby: Lobby) -> None:
         user.balance = user.balance + lobby.bet
         user.blocked_balance = user.blocked_balance - lobby.bet
         user.save()
-    except Exception as exception:
-        print(exception)
+    except Exception:
+        logger.exception('distribute_funds_back_to_user failed for user %s lobby %s', user, lobby)
 
 
 def distribute_funds_and_mmr(user: CustomUser, lobby: Lobby, team: str, result: str) -> None:
@@ -147,7 +145,7 @@ def distribute_funds_and_mmr(user: CustomUser, lobby: Lobby, team: str, result: 
         calibration_is_finished = check_if_user_finished_calibration(user)
 
         user_team_is_win = check_if_user_team_win(team, result)
-        print("user_team_is_win %s" % user_team_is_win)
+        logger.debug('user_team_is_win: %s', user_team_is_win)
 
         with transaction.atomic():
             user_wallet = UserWallet.objects.get(user=user)
@@ -184,8 +182,8 @@ def distribute_funds_and_mmr(user: CustomUser, lobby: Lobby, team: str, result: 
             dota_rank = calculate_dota_rank(user.dota_mmr)
             user.dota_rank = dota_rank
             user.save()
-    except Exception as exception:
-        print(exception)
+    except Exception:
+        logger.exception('distribute_funds_and_mmr failed for user %s lobby %s', user, lobby)
 
 
 def match_steam_message(pattern_to_match: str, member: Any) -> str:
@@ -254,8 +252,8 @@ def parse_and_save_steam_massage(member: Any, queryset: list) -> Tuple[list, lis
 
         queryset.append(player_info_instance)
 
-    except Exception as exception:
-        print(exception)
+    except Exception:
+        logger.exception('parse_and_save_steam_massage failed for steam_id %s', steam_id)
 
     user_info_from_dota = [steam_id, team]
     return queryset, user_info_from_dota
@@ -274,21 +272,19 @@ def send_block_info_to_bitrix(lobby: Lobby) -> None:
                                   'hero_id': reported_member.hero_id,
                                   'datetime_create_game_time': reported_member.datetime_create_game_time}
             users_reported_data.append(user_reported_data)
-        except Exception as exception:
-            print(exception)
+        except Exception:
+            logger.exception('Failed to gather reported data for member %s', reported_member)
 
     DATA = {
         'lobby_id': lobby.id,
         'dota_lobby_id': lobby.match_id,
         'users_reported_data': users_reported_data,
     }
-    print("DATA: %s" % DATA)
+    logger.info('Sending block info to Bitrix: %s', DATA)
 
     headers = {"Content-Type": "application/json"}
     r = requests.request("POST", URL, json=DATA, headers=headers)
-
-    response = r.text
-    print("Response from bitrix from lobby: '{0}' : '{1}'".format(lobby, response))
+    logger.info("Bitrix response for lobby '%s': %s", lobby, r.text)
 
 
 def fill_data_about_blocked_users(lobby: Lobby) -> None:

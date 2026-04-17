@@ -11,64 +11,52 @@ from payments.monetix.models import UserWallet
 
 from .models import Membership, Lobby, Bot
 
-logging.basicConfig(
-    format='[%(asctime)s] %(levelname)s %(name)s: %(message)s',
-    level=logging.INFO
-)
+logger = logging.getLogger(__name__)
 
 
 class LobbyConsumer(AsyncWebsocketConsumer):
-    """
-    LobbyConsumer which supports WebSockets and forwards incoming messages to
-    the websocket channels.
-    """
 
-    @staticmethod
-    def check_membership_status(data: dict) -> dict:
-        """Check membership status and return data about status membership"""
-
-        id_user = data['userID']
+    def check_membership_status(self, data: dict) -> dict:
+        """Check membership status using the authenticated user from scope."""
+        user = self.scope['user']
         id_lobby = data['lobbyID']
         team = data['team']
         user_position = data['userPosition']
 
         lobby = get_object_or_404(Lobby, id=id_lobby)
-        user = get_object_or_404(UserWallet, user__id=id_user)
+        user_wallet = get_object_or_404(UserWallet, user=user)
 
-        if user.user.is_blocked:
-            data['error'] = 'user: ' + str(id_user) + ' is_blocked'
+        if user.is_blocked:
+            data['error'] = 'user_is_blocked'
             return data
 
         if lobby.is_slots_lte_memberships:
             data['error'] = 'lobby_full'
             return data
 
-        if Membership.objects.filter(user__id=id_user).exists():
+        if Membership.objects.filter(user=user).exists():
             data['error'] = 'in_lobby'
             return data
 
-        if user.balance < lobby.bet:
+        if user_wallet.balance < lobby.bet:
             data['error'] = 'balance'
             return data
 
         if lobby.game_mode == '1v1 Solo Mid':
-            existing_user = Membership.objects.filter(lobby=lobby).exclude(user__id=id_user).first()
-
-            if existing_user:
-                existing_user_mmr = existing_user.user.dota_mmr
-
+            existing_member = Membership.objects.filter(lobby=lobby).exclude(user=user).first()
+            if existing_member:
+                existing_user_mmr = existing_member.user.dota_mmr
                 min_mmr = existing_user_mmr - 1000
                 max_mmr = existing_user_mmr + 1000
-
-                if not (min_mmr <= user.user.dota_mmr <= max_mmr):
+                if not (min_mmr <= user.dota_mmr <= max_mmr):
                     data['error'] = 'out_mmr_range'
                     return data
 
         Membership.objects.create(
-            user=CustomUser.objects.get(id=id_user),
+            user=user,
             lobby=lobby,
             team=team,
-            position=user_position
+            position=user_position,
         )
 
         data['success'] = True
@@ -84,32 +72,40 @@ class LobbyConsumer(AsyncWebsocketConsumer):
         async_to_sync(self.group_lobby_message)(new_data)
 
     def remove_membership(self, data):
-        id_user = data['userID']
+        user = self.scope['user']
         data['success'] = False
 
-        if member := Membership.objects.filter(user__id=id_user).first():
+        if member := Membership.objects.filter(user=user).first():
             member.delete()
             data['success'] = True
 
         async_to_sync(self.group_lobby_message)(data)
 
     def status_ready(self, data):
-        id_user = data['userID']
+        user = self.scope['user']
         id_lobby = data['lobbyID']
 
-        print("id_user %s" % id_user)
-        print("id_lobby %s" % id_lobby)
+        logger.info("status_ready user=%s lobby=%s", user.id, id_lobby)
 
-        Membership.objects.filter(user__id=id_user).update(status=True)
-        if Membership.objects.filter(lobby__id=id_lobby, status=False):
+        Membership.objects.filter(user=user).update(status=True)
+        if Membership.objects.filter(lobby__id=id_lobby, status=False).exists():
             data['status'] = False
             data['success'] = True
             async_to_sync(self.group_lobby_message)(data)
             return
 
-        members = Membership.objects.filter(lobby__id=id_lobby).select_related('user__user_wallet')
         lobby = Lobby.objects.filter(id=id_lobby).first()
-        if members.filter(user__user_wallet__balance__lt=lobby.bet):
+        if not lobby:
+            data['success'] = False
+            data['error'] = 'lobby_not_found'
+            async_to_sync(self.group_lobby_message)(data)
+            return
+
+        insufficient_balance = UserWallet.objects.filter(
+            user__membership__lobby__id=id_lobby,
+            balance__lt=lobby.bet,
+        ).exists()
+        if insufficient_balance:
             data['success'] = False
             data['error'] = 'balance'
             async_to_sync(self.group_lobby_message)(data)
@@ -119,30 +115,31 @@ class LobbyConsumer(AsyncWebsocketConsumer):
         if not free_bot:
             data['status'] = False
             data['success'] = False
-            data['error'] = "Bots are busy"
+            data['error'] = 'Bots are busy'
             async_to_sync(self.group_lobby_message)(data)
             return
 
+        members = Membership.objects.filter(lobby__id=id_lobby).select_related('user')
         for member in members:
-            wallet = member.user.user_wallet
-            wallet.balance = wallet.balance - lobby.bet
-            wallet.blocked_balance = wallet.blocked_balance + lobby.bet
-            wallet.save()
+            wallet = UserWallet.objects.filter(user=member.user).first()
+            if wallet:
+                wallet.balance -= lobby.bet
+                wallet.blocked_balance += lobby.bet
+                wallet.save()
 
-        lobby.status = "Pending"
+        lobby.status = 'Pending'
         lobby.save(update_fields=['status'])
 
-        q_lobby_players = members.values_list('user__steam_id')
+        q_lobby_players = list(members.values_list('user__steam_id', flat=True))
 
         free_bot.bot_status = True
         free_bot.save()
 
-        print('PRE START TASK')
+        logger.info("Starting game task for lobby %s", lobby.id)
         task_id = controller_dota_task.delay(
-            lobby.id, lobby.name, lobby.password, list(q_lobby_players), lobby.game_mode,
-            free_bot.bot_name, free_bot.bot_password
+            lobby.id, lobby.name, lobby.password, q_lobby_players, lobby.game_mode,
+            free_bot.bot_name, free_bot.bot_password,
         )
-        print("POST TEST TASK")
 
         lobby.task_id = task_id
         lobby.save(update_fields=['task_id'])
@@ -156,52 +153,45 @@ class LobbyConsumer(AsyncWebsocketConsumer):
     commands = {
         'new_membership': new_membership,
         'remove_membership': remove_membership,
-        'status_ready': status_ready
+        'status_ready': status_ready,
     }
 
-    # Consumer connect
     async def connect(self):
+        user = self.scope.get('user')
+        if not user or not user.is_authenticated:
+            await self.close()
+            return
+
         self.lobby_id = self.scope['url_route']['kwargs']['lobby_id']
         self.lobby_group_name = 'lobby_%s' % self.lobby_id
 
-        # Join lobby group
         await self.channel_layer.group_add(
             self.lobby_group_name,
-            self.channel_name
+            self.channel_name,
         )
-
         await self.accept()
 
-    # Consumer disconnect
     async def disconnect(self, close_code):
-        # Leave lobby group
-        await self.channel_layer.group_discard(
-            self.lobby_group_name,
-            self.channel_name
-        )
+        if hasattr(self, 'lobby_group_name'):
+            await self.channel_layer.group_discard(
+                self.lobby_group_name,
+                self.channel_name,
+            )
 
-    # Receive message from WebSocket
     async def receive(self, text_data):
         text_data_json = json.loads(text_data)
-
         data = text_data_json['data']
-
         await database_sync_to_async(self.commands[data['command']])(self, data)
 
-    # Send message to lobby group
     async def group_lobby_message(self, data):
         await self.channel_layer.group_send(
             self.lobby_group_name,
             {
                 'type': 'lobby_message',
-                'data': data
-            }
+                'data': data,
+            },
         )
 
-    # Send message to WebSocket
     async def lobby_message(self, event):
         data = event['data']
-
-        await self.send(text_data=json.dumps({
-            'data': data
-        }))
+        await self.send(text_data=json.dumps({'data': data}))

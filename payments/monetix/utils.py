@@ -1,16 +1,19 @@
 import base64
 import hashlib
 import hmac
+import logging
 import random
 from collections import OrderedDict
 
 from Crypto import Random
 from Crypto.Cipher import AES
 from authentication.models import CustomUser
-from core.settings import *
+from django.conf import settings
 from django.http import HttpRequest
 
 from .models import UserWallet
+
+logger = logging.getLogger(__name__)
 
 MONETIX_URLS = {
     "payout_card": "/v2/payment/card/payout/token",
@@ -36,7 +39,7 @@ def generate_data_for_payment_request(payment_id, payment_method, customer_id, c
 
     data = {
         "general": {
-            "project_id": int(MONETIX_PROJECT_ID),
+            "project_id": int(settings.MONETIX_PROJECT_ID),
             "payment_id": payment_id
         },
         "payment": {
@@ -79,7 +82,7 @@ def generate_data_for_payment_request(payment_id, payment_method, customer_id, c
     elif payment_method == "refund_card":
         data["payment"]["description"] = "refund"
 
-    print("data %s " % data)
+    logger.debug("payment request data: %s", data)
 
     return data
 
@@ -95,17 +98,12 @@ def get_user_ip(request: HttpRequest) -> str:
 
 def get_user_wallet(custom_user: CustomUser) -> UserWallet:
     """Get user wallet and if not exist create it"""
-    user_wallet, created = UserWallet.objects.get_or_create(user=custom_user)
-
-    if created:
-        custom_user.user_wallet = user_wallet
-        custom_user.save()
-
+    user_wallet, _ = UserWallet.objects.get_or_create(user=custom_user)
     return user_wallet
 
 
 def generate_payment_id(customer_id: int) -> str:
-    return MONETIX_TRANSACTION_TYPE + "_" + str(customer_id) + "_" + str(random.randint(0, 9999999))
+    return settings.MONETIX_TRANSACTION_TYPE + "_" + str(customer_id) + "_" + str(random.randint(0, 9999999))
 
 
 class AESCipher(object):

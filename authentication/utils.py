@@ -1,12 +1,15 @@
+import logging
+
 from rest_framework.exceptions import ParseError
+
+logger = logging.getLogger(__name__)
 
 
 def validate_and_change_password(password, password_copy, user):
-    password_valid, reason = validate_password(password,
-                                               password_copy)
+    password_valid, reason = validate_password(password, password_copy)
     if not password_valid:
         raise ParseError(detail={"error": reason})
-    print("user: %s" % user)
+    logger.info("Password changed for user: %s", user)
     user.set_password(password)
     user.save()
 

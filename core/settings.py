@@ -16,7 +16,7 @@ from pathlib import Path
 import environ
 
 env = environ.Env()
-environ.Env.read_env()
+environ.Env.read_env(os.path.join(Path(__file__).resolve().parent.parent, '.env'))
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,10 +25,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/3.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-3(3h3c_4b%eagog3c^9+(4+-13%551&7#2%fa$xesy2325ep@6'
+SECRET_KEY = env('SECRET_KEY', default='django-insecure-3(3h3c_4b%eagog3c^9+(4+-13%551&7#2%fa$xesy2325ep@6')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env.bool('DEBUG', default=True)
 
 # RabbitMQ settings
 RABBITMQ_HOSTNAME = 'localhost'
@@ -36,37 +36,44 @@ RABBITMQ_PORT = 5672
 RABBITMQ_USERNAME = 'guest'
 RABBITMQ_PASSWORD = 'guest'
 
-# SHUFTIPRO CREDENTIALS
-SHUFTIPRO_CLIENT_ID = env('SHUFTIPRO_CLIENT_ID')
-SHUFTIPRO_SECRET_KEY = env('SHUFTIPRO_SECRET_KEY')
-
-SHUFTIPRO_TRANSACTION_TYPE = "test"
 
 # MONETIX PAYMENT CREDENTIALS
-MONETIX_PROJECT_ID = env('MONETIX_PROJECT_ID')
-MONETIX_KEY = env('MONETIX_KEY')
-HEALTH_CHECK_KEY = env('HEALTH_CHECK_KEY')
-HEALTH_CHECK_LOGIN = env('HEALTH_CHECK_LOGIN')
-HEALTH_CHECK_PASSWORD = env('HEALTH_CHECK_PASSWORD')
+MONETIX_PROJECT_ID = env('MONETIX_PROJECT_ID', default='')
+MONETIX_KEY = env('MONETIX_KEY', default='')
+HEALTH_CHECK_KEY = env('HEALTH_CHECK_KEY', default='')
+HEALTH_CHECK_LOGIN = env('HEALTH_CHECK_LOGIN', default='')
+HEALTH_CHECK_PASSWORD = env('HEALTH_CHECK_PASSWORD', default='')
+INTERNAL_API_SECRET = env('INTERNAL_API_SECRET', default='')
 
-MONETIX_TRANSACTION_TYPE = "test"
+MONETIX_TRANSACTION_TYPE = env('MONETIX_TRANSACTION_TYPE', default='test')
+
+# SHUFTIPRO KYC CREDENTIALS
+SHUFTIPRO_CLIENT_ID = env('SHUFTIPRO_CLIENT_ID', default='')
+SHUFTIPRO_SECRET_KEY = env('SHUFTIPRO_SECRET_KEY', default='')
+SHUFTIPRO_TRANSACTION_TYPE = env('SHUFTIPRO_TRANSACTION_TYPE', default='test')
 
 # EMAIL CREDENTIALS
 DEFAULT_FROM_EMAIL = 'cybert.helper@gmail.com'
 SERVER_EMAIL = 'cybert.helper@gmail.com'
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = env('EMAIL_HOST')
+EMAIL_HOST = env('EMAIL_HOST', default='')
 EMAIL_PORT = 587
-EMAIL_HOST_USER = env('EMAIL_HOST_USER')
+EMAIL_HOST_USER = env('EMAIL_HOST_USER', default='')
 EMAIL_USE_TLS = True
-EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD')
+EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
 
 # TWILIO sms provider API СREDENTIALS
 # TWILIO_VERIFY = 'https://verify.twilio.com/v2/',
-TWILIO_VERIFY_SERVICE_SID = env('TWILIO_VERIFY_SERVICE_SID')
-TWILIO_ACCOUNT_SID = env('TWILIO_ACCOUNT_SID')
-TWILIO_AUTH_TOKEN = env('TWILIO_AUTH_TOKEN')
-ACCOUNT_SECURITY_API_KEY = env('ACCOUNT_SECURITY_API_KEY')
+TWILIO_VERIFY_SERVICE_SID = env('TWILIO_VERIFY_SERVICE_SID', default='')
+TWILIO_ACCOUNT_SID = env('TWILIO_ACCOUNT_SID', default='')
+TWILIO_AUTH_TOKEN = env('TWILIO_AUTH_TOKEN', default='')
+ACCOUNT_SECURITY_API_KEY = env('ACCOUNT_SECURITY_API_KEY', default='')
+
+# PUSHER CREDENTIALS
+PUSHER_APP_ID = env('PUSHER_APP_ID', default='')
+PUSHER_KEY = env('PUSHER_KEY', default='')
+PUSHER_SECRET = env('PUSHER_SECRET', default='')
+PUSHER_CLUSTER = env('PUSHER_CLUSTER', default='ap2')
 
 ALLOWED_HOSTS = [
     'beta-cybert.kz',
@@ -149,9 +156,14 @@ MIDDLEWARE = [
 ]
 
 # add this block below MIDDLEWARE
-CORS_ORIGIN_ALLOW_ALL = True
-# CORS_ALLOW_ALL_ORIGINS = True
+CORS_ORIGIN_ALLOW_ALL = env.bool('CORS_ALLOW_ALL', default=False)
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=[
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'https://cybert.online',
+    'https://beta-cybert.kz',
+])
 
 # CORS_ALLOWED_ORIGIN_REGEXES = [
 #     'beta-cybert.kz',
@@ -253,11 +265,11 @@ DATABASES = {
     # }
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'cybert_db',
-        'USER': 'zhancare',
-        'PASSWORD': '4HPzQt2HyU',
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'NAME': env('DB_NAME', default='cybert_db'),
+        'USER': env('DB_USER', default='zhancare'),
+        'PASSWORD': env('DB_PASSWORD', default=''),
+        'HOST': env('DB_HOST', default='localhost'),
+        'PORT': env('DB_PORT', default='5432'),
     }
     # 'default': {
     #     'ENGINE': 'django.db.backends.mysql',
@@ -330,11 +342,12 @@ AUTH_USER_MODEL = 'authentication.CustomUser'
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.TokenAuthentication',
-        'rest_framework.authentication.BasicAuthentication',
+        # BasicAuthentication removed — sends credentials in plain HTTP headers
         'rest_framework.authentication.SessionAuthentication',
     ],
+    # Secure default: every view requires auth unless it explicitly sets AllowAny
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny',
+        'rest_framework.permissions.IsAuthenticated',
     ],
 }
 

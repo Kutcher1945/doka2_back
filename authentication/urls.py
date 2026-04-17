@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 
 from .views import *
 from .viewsets import *
+from .steam_views import steam_connect, steam_callback
 
 router = DefaultRouter()
 router.register('', CustomUserModelViewSet)
@@ -21,4 +22,6 @@ urlpatterns = [
     path('set_status/', UserSetStatusView.as_view()),
     path('my_id/', get_my_id),
     path('verification/', include('authentication.verification.urls')),
+    path('steam/', steam_connect, name='steam-connect'),
+    path('steam/callback/', steam_callback, name='steam-callback'),
 ]

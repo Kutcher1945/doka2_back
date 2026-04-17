@@ -1,243 +1,178 @@
-from authentication.models import CustomUser
 from django.db.models import CharField
 from django.db.models.functions import Lower
-from django.http import Http404
-from rest_framework import permissions, status
-from rest_framework import viewsets
+from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.generics import ListAPIView
-from rest_framework.mixins import (
-    CreateModelMixin, ListModelMixin, RetrieveModelMixin, UpdateModelMixin
-)
-from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.mixins import CreateModelMixin, ListModelMixin, RetrieveModelMixin, UpdateModelMixin
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
+from authentication.models import CustomUser
 from .models import Lobby, Membership, Bot, GameHistory, PlayerInfo
-from .serializers import LobbySerializer, MembershipSerializer, BotSerializer, GameHistorySerializer, \
-    PlayerInfoSerializer, LobbySerializerForCurrentLobby, MembershipSerializerForCurrentLobby
+from .serializers import (
+    LobbySerializer, MembershipSerializer, BotSerializer,
+    GameHistorySerializer, PlayerInfoSerializer,
+    LobbySerializerForCurrentLobby,
+)
+from .utils import get_game_count, get_floating_commission, get_game_count_to_reduce_commission
 
 CharField.register_lookup(Lower)
 
 
-class LobbyViewSetFiltered(GenericViewSet,  # generic view functionality
-                           CreateModelMixin,  # handles POSTs
-                           RetrieveModelMixin,  # handles GETs for 1 Company
-                           UpdateModelMixin,  # handles PUTs and PATCHes
-                           ListModelMixin):  # handles GETs for many Companies
+class LobbyViewSet(GenericViewSet, CreateModelMixin, RetrieveModelMixin, UpdateModelMixin, ListModelMixin):
+    """
+    Single ViewSet for all Lobby operations.
 
-    permission_classes = (permissions.AllowAny,)
-    queryset = Lobby.objects.filter(status="Created")
-    serializer_class = LobbySerializer
-    pagination_class = LimitOffsetPagination
+    Filtering via query params:
+      - lobby_name      — partial name match
+      - lobby_bet_min   — minimum bet
+      - lobby_bet_max   — maximum bet
+      - position        — exact position filter
 
-    def get_filtered_lobbies(self):
-        # Retrieve input values from request
-        lobby_name = self.request.GET.get('lobby_name')
-        lobby_bet_min = float(self.request.GET.get('lobby_bet_min', 0))
-        lobby_bet_max = float(self.request.GET.get('lobby_bet_max', float('inf')))
-        lobby_player_amount = int(self.request.GET.get('lobby_player_amount', 0))
-        offset = int(self.request.GET.get('offset', 0))
-        amount = int(self.request.GET.get('amount', 0))
-        position = int(self.request.GET.get('position', 0))
-
-        # Build queryset based on input values
-        if lobby_name is not None:
-            self.queryset = self.queryset.filter(name__icontains=lobby_name)
-        if lobby_bet_min is not None:
-            self.queryset = self.queryset.filter(bet__gte=lobby_bet_min)
-        if lobby_bet_max is not None:
-            self.queryset = self.queryset.filter(bet__lte=lobby_bet_max)
-        if lobby_player_amount is not None:
-            self.queryset = self.queryset.filter(members=lobby_player_amount)
-        if position is not None:
-            self.queryset = self.queryset.filter(position=position)
-        if not position and not lobby_player_amount:
-            self.queryset = self.queryset.order_by('-members')
-
-        # Paginate queryset
-        paginator = self.pagination_class()
-        paginated_queryset = paginator.paginate_queryset(self.queryset, self.request)
-        serializer = self.get_serializer(paginated_queryset, many=True)
-        return paginator.get_paginated_response(serializer.data)
-
-
-class LobbyViewSet(GenericViewSet,  # generic view functionality
-                   CreateModelMixin,  # handles POSTs
-                   RetrieveModelMixin,  # handles GETs for 1 Company
-                   UpdateModelMixin,  # handles PUTs and PATCHes
-                   ListModelMixin):  # handles GETs for many Companies
-    permission_classes = (permissions.AllowAny,)
-    serializer_class = LobbySerializer
-    queryset = Lobby.objects.all()
-
-    def create(self, request, *args, **kwargs):
-        user_id = request.data.get('leader')
-        bet = request.data.get('bet')
-        user = CustomUser.objects.get(id=user_id)
-
-        if user.is_blocked:
-            return Response({'error': 'User is blocked.'}, status=status.HTTP_403_FORBIDDEN)
-        if int(bet) < 50:
-            return Response({'error': 'Min bet 50'}, status=status.HTTP_403_FORBIDDEN)
-
-        return super().create(request, *args, **kwargs)
-
-    def perform_create(self, serializer):
-        serializer.save()
-
-    @action(detail=True, methods=['get'])
-    def memberships(self, request, pk=None):
-        try:
-            members = Lobby.objects.get(id=pk).members.all()
-            memberships = Membership.objects.filter(user__in=members)
-            serializer = MembershipSerializer(memberships.all(), many=True)
-            return Response(serializer.data)
-        except Lobby.DoesNotExist:
-            return Response({'error': 'Lobby not found.'}, status=status.HTTP_204_NO_CONTENT)
-
-    @action(detail=True, methods=['get'])
-    def current_lobby(self, request, pk=None):
-        try:
-            memberships = Membership.objects.filter(user_id=pk)
-            if not memberships:
-                return Response({'error': 'User not found in any lobby.'}, status=status.HTTP_204_NO_CONTENT)
-
-            lobby_id = memberships[0].lobby.id
-            lobby = Lobby.objects.get(id=lobby_id)
-
-            lobby_serializer = LobbySerializerForCurrentLobby(lobby)
-            data = {
-                'lobby': lobby_serializer.data,
-            }
-            return Response(data)
-        except Lobby.DoesNotExist:
-            return Response({'error': 'Lobby not found.'}, status=status.HTTP_204_NO_CONTENT)
-
-
-class LobbyViewSetSimilar(GenericViewSet,  # generic view functionality
-                          CreateModelMixin,  # handles POSTs
-                          RetrieveModelMixin,  # handles GETs for 1 Company
-                          UpdateModelMixin,  # handles PUTs and PATCHes
-                          ListAPIView):  # handles GETs for many Companies
-    permission_classes = (permissions.AllowAny,)
-    queryset = None
+    Extra actions:
+      - GET  /lobby/similar/   — find lobbies with bet ±10% of ?bet=, exclude ?id=
+      - GET  /lobby/current/   — get the requesting user's current lobby
+      - GET  /lobby/{id}/memberships/ — list members of a lobby
+    """
+    permission_classes = [IsAuthenticated]
     serializer_class = LobbySerializer
 
     def get_queryset(self):
-        queryset = None
-        bet = self.request.query_params.get('bet')
-        id_lobby = self.request.query_params.get('id')
-        if bet is not None:
+        qs = Lobby.objects.filter(status="Created")
+        params = self.request.query_params
+
+        name = params.get('lobby_name')
+        bet_min = params.get('lobby_bet_min')
+        bet_max = params.get('lobby_bet_max')
+        position = params.get('position')
+
+        if name:
+            qs = qs.filter(name__icontains=name)
+        if bet_min:
             try:
-                bet_int = int(bet)
-                percent_from_bet = (10 * bet_int) / 100.0
-                queryset = Lobby.objects.filter(
-                    bet__gte=bet_int - percent_from_bet,
-                    bet__lte=bet_int + percent_from_bet,
-                    status="Created"
-                ).exclude(id=id_lobby)
-            except (TypeError, ValueError):
+                qs = qs.filter(bet__gte=float(bet_min))
+            except ValueError:
                 pass
-        return queryset
+        if bet_max:
+            try:
+                qs = qs.filter(bet__lte=float(bet_max))
+            except ValueError:
+                pass
+        if position:
+            qs = qs.filter(position=position)
+
+        return qs
+
+    def create(self, request, *args, **kwargs):
+        user = request.user
+        if user.is_blocked:
+            return Response({'error': 'User is blocked.'}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            bet = int(request.data.get('bet', 0))
+        except (TypeError, ValueError):
+            return Response({'error': 'Invalid bet value.'}, status=status.HTTP_400_BAD_REQUEST)
+        if bet < 50:
+            return Response({'error': 'Minimum bet is 50.'}, status=status.HTTP_400_BAD_REQUEST)
+        return super().create(request, *args, **kwargs)
+
+    @action(detail=False, methods=['get'])
+    def similar(self, request):
+        """Lobbies with bet ±10% of the given value, excluding the given lobby id."""
+        bet = request.query_params.get('bet')
+        exclude_id = request.query_params.get('id')
+        if not bet:
+            return Response([])
+        try:
+            bet_int = int(bet)
+        except ValueError:
+            return Response({'error': 'Invalid bet value.'}, status=status.HTTP_400_BAD_REQUEST)
+        margin = (10 * bet_int) / 100.0
+        qs = Lobby.objects.filter(
+            bet__gte=bet_int - margin,
+            bet__lte=bet_int + margin,
+            status="Created",
+        )
+        if exclude_id:
+            qs = qs.exclude(id=exclude_id)
+        return Response(LobbySerializer(qs, many=True).data)
+
+    @action(detail=False, methods=['get'], url_path='current')
+    def current_lobby(self, request):
+        """Return the lobby the requesting user is currently in."""
+        membership = Membership.objects.filter(user=request.user).first()
+        if not membership:
+            return Response({'error': 'User is not in any lobby.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(LobbySerializerForCurrentLobby(membership.lobby).data)
+
+    @action(detail=True, methods=['get'])
+    def memberships(self, request, pk=None):
+        """List all memberships for a given lobby."""
+        try:
+            members = Lobby.objects.get(id=pk).members.all()
+        except Lobby.DoesNotExist:
+            return Response({'error': 'Lobby not found.'}, status=status.HTTP_404_NOT_FOUND)
+        memberships = Membership.objects.filter(user__in=members)
+        return Response(MembershipSerializer(memberships, many=True).data)
 
 
-class LobbyViewSetPosition(GenericViewSet, CreateModelMixin, RetrieveModelMixin, UpdateModelMixin, ListModelMixin):
-    permission_classes = (permissions.AllowAny,)
-    queryset = Lobby.objects.filter(status="Created")
-    serializer_class = LobbySerializer
-
-    def list(self, request, *args, **kwargs):
-        position = self.request.query_params.get('position')
-        lobbies = self.get_queryset().filter(position=position)
-        serializer = self.get_serializer(lobbies, many=True)
-        return Response(serializer.data)
-
-
-class MembershipViewSet(GenericViewSet,  # generic view functionality
-                        CreateModelMixin,  # handles POSTs
-                        RetrieveModelMixin,  # handles GETs for 1 Company
-                        UpdateModelMixin,  # handles PUTs and PATCHes
-                        ListModelMixin):  # handles GETs for many Companies
-
-    permission_classes = (permissions.AllowAny,)
+class MembershipViewSet(GenericViewSet, CreateModelMixin, RetrieveModelMixin, UpdateModelMixin, ListModelMixin):
+    permission_classes = [IsAuthenticated]
     serializer_class = MembershipSerializer
     queryset = Membership.objects.all()
 
 
-class BotViewSet(GenericViewSet,  # generic view functionality
-                 CreateModelMixin,  # handles POSTs
-                 RetrieveModelMixin,  # handles GETs for 1 Company
-                 UpdateModelMixin,  # handles PUTs and PATCHes
-                 ListModelMixin):  # handles GETs for many Companies
-    permission_classes = (permissions.AllowAny,)
+class BotViewSet(GenericViewSet, CreateModelMixin, RetrieveModelMixin, UpdateModelMixin, ListModelMixin):
+    permission_classes = [IsAuthenticated]
     serializer_class = BotSerializer
     queryset = Bot.objects.all()
 
 
-class PlayerInfoViewSet(GenericViewSet,  # generic view functionality
-                        CreateModelMixin,  # handles POSTs
-                        RetrieveModelMixin,  # handles GETs for 1 Company
-                        UpdateModelMixin,  # handles PUTs and PATCHes
-                        ListModelMixin):  # handles GETs for many Companies
-    permission_classes = (permissions.AllowAny,)
+class PlayerInfoViewSet(GenericViewSet, CreateModelMixin, RetrieveModelMixin, UpdateModelMixin, ListModelMixin):
+    permission_classes = [IsAuthenticated]
     serializer_class = PlayerInfoSerializer
     queryset = PlayerInfo.objects.all()
 
 
-class GameHistoryViewSet(viewsets.ModelViewSet):
-    permission_classes = (permissions.AllowAny,)
+class GameHistoryViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Read-only ViewSet for game history.
+
+    List filtering via query params:
+      - id_user  — filter by user id (defaults to requesting user)
+
+    Extra actions:
+      - GET /game_history/commission/  — get the requesting user's current commission tier
+      - GET /game_history/{id}/by_lobby/ — get game history for a lobby
+    """
+    permission_classes = [IsAuthenticated]
     serializer_class = GameHistorySerializer
-    queryset = None
 
     def get_queryset(self):
-        """
-        Get user_verification by id_user
-        """
-
-        id_user = self.request.GET.get('id_user')
-        if not id_user:
-            raise Http404('id_user parameter is missing.')
-
-        queryset = CustomUser.objects.get(id=id_user).dota_game_history.all()
-        return queryset
-
-    @action(detail=True, methods=['get'])
-    def history(self, request, pk=None):
         try:
-            game_history = CustomUser.objects.get(id=pk).dota_game_history.all()
-            serializer = GameHistorySerializer(game_history.all(), many=True)
-            return Response(serializer.data)
-        except (CustomUser.DoesNotExist, GameHistory.DoesNotExist):
-            return Response({'error': 'User or game history not found.'}, status=status.HTTP_204_NO_CONTENT)
+            return self.request.user.dota_game_history.all()
+        except Exception:
+            return GameHistory.objects.none()
 
-    @action(detail=True, methods=['get'])
-    def current_lobby_game_history(self, request, pk=None):
-        try:
-            memberships = Membership.objects.filter(user_id=pk)
-            if not memberships:
-                return Response({'error': 'User not found in any lobby.'}, status=status.HTTP_204_NO_CONTENT)
+    @action(detail=False, methods=['get'])
+    def commission(self, request):
+        """Return the requesting user's current commission rate and games needed to reduce it."""
+        user_id = request.user.id
+        game_count = get_game_count(user_id)
+        commission = get_floating_commission(game_count)
+        games_to_reduce = get_game_count_to_reduce_commission(game_count)
+        return Response({
+            'commission': commission,
+            'games_to_reduce': games_to_reduce,
+            'game_count': game_count,
+        })
 
-            lobby_id = memberships[0].lobby.id
-            game_history = Lobby.objects.get(id=lobby_id).game_history
-
-            game_history_serializer = GameHistorySerializer(game_history)
-            data = {
-                'game_history': game_history_serializer.data,
-            }
-            return Response(data)
-        except Lobby.DoesNotExist:
-            return Response({'error': 'GameHistory not found.'}, status=status.HTTP_204_NO_CONTENT)
-
-    @action(detail=True, methods=['get'])
-    def by_lobby_id(self, request, pk=None):
+    @action(detail=True, methods=['get'], url_path='by_lobby')
+    def by_lobby(self, request, pk=None):
+        """Return the game history record attached to a given lobby."""
         try:
             game_history = Lobby.objects.get(id=pk).game_history
-
-            game_history_serializer = GameHistorySerializer(game_history)
-            data = {
-                'game_history': game_history_serializer.data,
-            }
-            return Response(data)
         except Lobby.DoesNotExist:
-            return Response({'error': 'GameHistory not found.'}, status=status.HTTP_204_NO_CONTENT)
+            return Response({'error': 'Lobby not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if game_history is None:
+            return Response({'error': 'No game history for this lobby.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(GameHistorySerializer(game_history).data)

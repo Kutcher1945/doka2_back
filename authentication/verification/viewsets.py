@@ -1,29 +1,23 @@
-from django.http import Http404
-from rest_framework import permissions, viewsets
+from rest_framework import viewsets
+from rest_framework.permissions import IsAuthenticated
 
 from . import serializers
-from .models import *
+from .models import UserVerification, VerificationHistory
 
 
-class UserVerificationViewSet(viewsets.ModelViewSet):
+class UserVerificationViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = serializers.UserVerificationSerializer
-    permission_classes = (permissions.AllowAny,)
-    queryset = None
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        """
-        Get user_verification by id_user
-        """
-
-        id_user = self.request.GET.get('id_user')
-        if not id_user:
-            raise Http404('id_user parameter is missing.')
-
-        queryset = UserVerification.objects.filter(user_id=id_user)
-        return queryset
+        return UserVerification.objects.filter(user=self.request.user)
 
 
-class VerificationHistoryViewSet(viewsets.ModelViewSet):
+class VerificationHistoryViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = serializers.VerificationHistorySerializer
-    permission_classes = (permissions.AllowAny,)
-    queryset = VerificationHistory.objects.all()
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return VerificationHistory.objects.filter(
+            user_verification__user=self.request.user
+        )
