@@ -1,0 +1,57 @@
+# ── Django ────────────────────────────────────────────────────────────────────
+SECRET_KEY=django-insecure-3(3h3c_4b%eagog3c^9+(4+-13%551&7#2%fa$xesy2325ep@6
+DEBUG=True
+
+# ── Database ──────────────────────────────────────────────────────────────────
+DB_NAME=cybert_db
+DB_USER=zhancare
+DB_PASSWORD=4HPzQt2HyU
+DB_HOST=localhost
+DB_PORT=5432
+
+# ── CORS ──────────────────────────────────────────────────────────────────────
+# Set to False in production and use CORS_ALLOWED_ORIGINS instead
+CORS_ALLOW_ALL=True
+# CORS_ALLOWED_ORIGINS=https://cybert.online,https://beta-cybert.kz,http://localhost:3000
+
+# ── Frontend / Backend hosts ──────────────────────────────────────────────────
+FRONTEND_HOST=https://cybert.online
+BACKEND_HOST=https://api.cybert.online
+
+# ── Monetix payment gateway ───────────────────────────────────────────────────
+MONETIX_PROJECT_ID=
+MONETIX_KEY=
+MONETIX_TRANSACTION_TYPE=test
+HEALTH_CHECK_KEY=
+HEALTH_CHECK_LOGIN=
+HEALTH_CHECK_PASSWORD=
+
+# ── Internal API secret (used by Bitrix moderation webhook) ───────────────────
+# Set to a strong random string, e.g.: openssl rand -hex 32
+INTERNAL_API_SECRET=
+
+# ── ShuftiPro KYC ─────────────────────────────────────────────────────────────
+SHUFTIPRO_CLIENT_ID=
+SHUFTIPRO_SECRET_KEY=
+SHUFTIPRO_TRANSACTION_TYPE=test
+
+# ── Email ─────────────────────────────────────────────────────────────────────
+EMAIL_HOST=smtp.gmail.com
+EMAIL_HOST_USER=cybert.helper@gmail.com
+EMAIL_HOST_PASSWORD=
+
+# ── Twilio SMS ────────────────────────────────────────────────────────────────
+TWILIO_VERIFY_SERVICE_SID=
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+ACCOUNT_SECURITY_API_KEY=
+
+# ── Pusher ────────────────────────────────────────────────────────────────────
+PUSHER_APP_ID=1538995
+PUSHER_KEY=ae00dcfed3c3f2c1df92
+PUSHER_SECRET=1236b7ca35a59fc40698
+PUSHER_CLUSTER=ap2
+
+# ── SMS Traffic ───────────────────────────────────────────────────────────────
+SMS_TRAFFIC_LOGIN=rid_kz
+SMS_TRAFFIC_PASS=u86w24Wk
