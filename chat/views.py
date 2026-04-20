@@ -1,7 +1,7 @@
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .pusher import pusher_client
+from .pusher import get_pusher_client
 from django.shortcuts import render
 import pika
 from django.conf import settings
@@ -63,7 +63,7 @@ def receive_message(request):
 class ChatAPIView(APIView):
 
     def post(self, request):
-        pusher_client.trigger('chat', 'message', {
+        get_pusher_client().trigger('chat', 'message', {
             'username': request.data['username'],
             'message': request.data['message'],
         })
