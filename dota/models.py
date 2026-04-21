@@ -14,8 +14,11 @@ class Lobby(models.Model):
     is_block = models.BooleanField(null=True, blank=True, default=None)
     bet = models.IntegerField(null=True, default=None)
     match_id = models.CharField(blank=True, max_length=100, null=True)
+    dota_lobby_id = models.BigIntegerField(null=True, blank=True)
+    assigned_bot = models.ForeignKey('Bot', null=True, blank=True, on_delete=models.SET_NULL, related_name='lobbies')
 
     task_id = models.CharField(blank=True, max_length=100, null=True)
+    vs_bots = models.BooleanField(default=False)
 
     datetime_create = models.DateTimeField(default=timezone.now)
     datetime_start_game = models.DateTimeField(null=True, blank=True)
@@ -105,7 +108,7 @@ class Rating(models.Model):
 
     class Meta:
         constraints = [
-            CheckConstraint(condition=Q(rate__range=(1, 5)), name='valid_rate'),
+            CheckConstraint(check=Q(rate__range=(1, 5)), name='valid_rate'),
             UniqueConstraint(fields=['user', 'player_info'], name='rating_once')
         ]
 

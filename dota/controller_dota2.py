@@ -18,7 +18,7 @@ logging.basicConfig(
 
 
 class DotaLobbyManager:
-    def __init__(self, lobby_id, lobby_name, lobby_password, q_lobby_players, lobby_game_mode, bot_name, bot_password):
+    def __init__(self, lobby_id, lobby_name, lobby_password, q_lobby_players, lobby_game_mode, bot_name, bot_password, vs_bots=False):
         self.lobby_id = lobby_id
         self.lobby_name = lobby_name
         self.lobby_password = lobby_password
@@ -26,6 +26,7 @@ class DotaLobbyManager:
         self.lobby_game_mode = lobby_game_mode
         self.bot_name = bot_name
         self.bot_password = bot_password
+        self.vs_bots = vs_bots
         self.client = SteamClient()
         self.dota = Dota2Client(self.client)
 
@@ -84,9 +85,14 @@ class DotaLobbyManager:
 
     def _login_in_steam(self):
         result = self.client.login(self.bot_name, self.bot_password)
+        logging.info("Steam login result: %s", result)
 
+        if result == EResult.AccountLoginDeniedNeedTwoFactor:
+            raise RuntimeError("Login failed: Steam Guard (Mobile Authenticator) is enabled. Disable it on the bot account.")
+        if result == EResult.AccountLogonDeniedVerifiedEmailRequired or result == EResult.AccountLogonDenied:
+            raise RuntimeError("Login failed: Steam Guard (Email) is enabled. Disable Steam Guard on the bot account.")
         if result != EResult.OK:
-            raise RuntimeError("Login failed")
+            raise RuntimeError(f"Login failed: {result}")
 
     def _start_dota(self):
         self.dota.launch()
@@ -123,9 +129,9 @@ class DotaLobbyManager:
         self.dota.create_practice_lobby(self.lobby_password, settings)
 
     def invite_players_to_lobby(self, lobby_players):
-        for lobby_player in lobby_players:
-            player_id = int(lobby_player[0])
+        for steam_id in lobby_players:
             try:
+                player_id = int(steam_id)
                 logging.info('invite player {}'.format(player_id))
                 self.dota.invite_to_lobby(player_id)
             except Exception as exception:
@@ -136,11 +142,20 @@ class DotaLobbyManager:
             'game_name': "CyberT | " + self.lobby_name,
             "allow_spectating": True,
             "pass_key": str(self.lobby_id),
-            'server_region': 8  # 3 id Europe, 8 Stockholm server region
+            'server_region': 8,  # 3 id Europe, 8 Stockholm server region
         }
+
+        if self.vs_bots:
+            settings['fill_with_bots'] = True
+            settings['bot_difficulty_dire'] = 2   # BOT_DIFFICULTY_MEDIUM
+            settings['bot_difficulty_radiant'] = 0  # BOT_DIFFICULTY_PASSIVE (real players on Radiant)
+
         self.dota.config_practice_lobby(settings)
 
-        logging.info('lobby {} created'.format(self.dota.lobby.lobby_id))
+        # Use message.lobby_id directly — self.dota.lobby may not be synced yet
+        dota_lobby_id = message.lobby_id
+        logging.info('lobby {} created (vs_bots={})'.format(dota_lobby_id, self.vs_bots))
+        Lobby.objects.filter(id=self.lobby_id).update(dota_lobby_id=dota_lobby_id)
         self.invite_players_to_lobby(self.lobby_players)
 
         self.dota.join_practice_lobby_team(DOTA_GC_TEAM.PLAYER_POOL)
@@ -161,15 +176,22 @@ class DotaLobbyManager:
         if message.HasField('state') and message.state != 0:
             return
 
-        logging.info("Game mode: " + str(self.lobby_game_mode))
+        logging.info("Game mode: %s vs_bots: %s", self.lobby_game_mode, self.vs_bots)
 
         good_side, bad_side, position_is_set = check_slots(message, 0, 0, 0)
 
-        if self.lobby_game_mode in (
-        "All Pick", "Captains Mode") and good_side == 5 and bad_side == 5 and position_is_set == 10:
-            self.launch_lobby()
-        elif self.lobby_game_mode == "1v1 Solo Mid" and good_side == 1 and bad_side == 1 and position_is_set == 2:
-            self.launch_lobby()
+        if self.vs_bots:
+            # Only Radiant (good_side) needs real players; Dire is filled by AI
+            if self.lobby_game_mode in ("All Pick", "Captains Mode") and good_side == 5:
+                self.launch_lobby()
+            elif self.lobby_game_mode == "1v1 Solo Mid" and good_side == 1:
+                self.launch_lobby()
+        else:
+            if self.lobby_game_mode in (
+            "All Pick", "Captains Mode") and good_side == 5 and bad_side == 5 and position_is_set == 10:
+                self.launch_lobby()
+            elif self.lobby_game_mode == "1v1 Solo Mid" and good_side == 1 and bad_side == 1 and position_is_set == 2:
+                self.launch_lobby()
 
     def post_game_handler(self, message):
         try:

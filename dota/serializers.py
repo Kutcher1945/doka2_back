@@ -42,7 +42,7 @@ class GameHistorySerializer(ModelSerializer):
 class LobbySerializer(ModelSerializer):
     class Meta:
         model = Lobby
-        fields = ('id', 'name', 'bet', 'lobby_lvl', 'slots', 'game_mode', 'status', 'datetime_start_game', 'is_block')
+        fields = ('id', 'name', 'bet', 'lobby_lvl', 'slots', 'game_mode', 'status', 'datetime_start_game', 'is_block', 'vs_bots', 'dota_lobby_id')
 
 
 class BotSerializer(ModelSerializer):

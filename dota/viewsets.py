@@ -38,7 +38,7 @@ class LobbyViewSet(GenericViewSet, CreateModelMixin, RetrieveModelMixin, UpdateM
     serializer_class = LobbySerializer
 
     def get_queryset(self):
-        qs = Lobby.objects.filter(status="Created")
+        qs = Lobby.objects.exclude(status="Finished").order_by('-datetime_create')
         params = self.request.query_params
 
         name = params.get('lobby_name')
