@@ -115,10 +115,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='rating',
-            constraint=models.CheckConstraint(check=models.Q(('rate__range', (1, 5))), name='valid_rate'),
-        ),
-        migrations.AddConstraint(
-            model_name='rating',
             constraint=models.UniqueConstraint(fields=('user', 'player_info'), name='rating_once'),
         ),
     ]

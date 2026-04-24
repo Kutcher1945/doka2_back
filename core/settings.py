@@ -102,7 +102,8 @@ ALLOWED_HOSTS = [
     '193.247.74.71',
     '172.27.0.6',
     '193.247.74.203',
-    'api.opendota.com'
+    'api.opendota.com',
+    '10.10.4.33'
 ]
 
 # Application definition

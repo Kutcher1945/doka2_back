@@ -140,3 +140,14 @@ def steam_callback(request):
     logger.info('steam_callback: linked steam_id=%s to user %s', steam64_id, user.id)
 
     return redirect(f"{settings.FRONTEND_HOST}/cabinet/profile?steam=connected")
+
+
+@api_view(['POST'])
+def steam_disconnect(request):
+    user = request.user
+    if not user.steam_id:
+        return Response({'error': 'Steam not connected.'}, status=status.HTTP_400_BAD_REQUEST)
+    user.steam_id = None
+    user.save(update_fields=['steam_id'])
+    logger.info('steam_disconnect: unlinked steam from user %s', user.id)
+    return Response({'success': True})

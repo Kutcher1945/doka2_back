@@ -4,6 +4,7 @@ import logging
 from celery.app.control import Control
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from dota.tasks import controller_dota_task
 from payments.monetix.models import UserWallet
@@ -90,8 +91,8 @@ class LobbyConsumer(AsyncWebsocketConsumer):
             lobby = member.lobby
             member.delete()
 
-            # If lobby was in Pending/Game started state with a running bot task, cancel it
-            if lobby.status in ('Pending',) and lobby.task_id:
+            # If lobby was in Pending/Game started/Error state with a running bot task, cancel it
+            if lobby.status in ('Pending', 'Game started', 'Error') and lobby.task_id:
                 try:
                     celery_app.control.revoke(lobby.task_id, terminate=True)
                 except Exception:
@@ -147,32 +148,27 @@ class LobbyConsumer(AsyncWebsocketConsumer):
 
         # TODO: re-enable wallet balance check
 
-        free_bot = await database_sync_to_async(
-            lambda: Bot.objects.filter(bot_status=False).first()
-        )()
+        def _claim_bot_and_start():
+            """Atomically grab a free bot and set lobby to Pending. Returns (bot, players) or (None, None)."""
+            with transaction.atomic():
+                bot = Bot.objects.select_for_update().filter(bot_status=False).first()
+                if not bot:
+                    return None, None
+                bot.bot_status = True
+                bot.save(update_fields=['bot_status'])
+                Lobby.objects.filter(id=id_lobby).update(status='Pending')
+                players = list(
+                    Membership.objects.filter(lobby__id=id_lobby).values_list('user__steam_id', flat=True)
+                )
+                return bot, players
+
+        free_bot, q_lobby_players = await database_sync_to_async(_claim_bot_and_start)()
         if not free_bot:
             data['status'] = False
             data['success'] = False
             data['error'] = 'Bots are busy'
             await self.group_lobby_message(data)
             return
-
-        members = await database_sync_to_async(
-            lambda: list(Membership.objects.filter(lobby__id=id_lobby).select_related('user'))
-        )()
-        # TODO: re-enable wallet deductions
-
-        await database_sync_to_async(lambda: (
-            setattr(lobby, 'status', 'Pending') or lobby.save(update_fields=['status'])
-        ))()
-
-        q_lobby_players = await database_sync_to_async(
-            lambda: list(Membership.objects.filter(lobby__id=id_lobby).values_list('user__steam_id', flat=True))
-        )()
-
-        await database_sync_to_async(lambda: (
-            setattr(free_bot, 'bot_status', True) or free_bot.save()
-        ))()
 
         vs_bots = await database_sync_to_async(
             lambda: Lobby.objects.filter(id=id_lobby).values_list('vs_bots', flat=True).first()

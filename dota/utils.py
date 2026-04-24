@@ -148,7 +148,7 @@ def distribute_funds_and_mmr(user: CustomUser, lobby: Lobby, team: str, result: 
         logger.debug('user_team_is_win: %s', user_team_is_win)
 
         with transaction.atomic():
-            user_wallet = UserWallet.objects.get(user=user)
+            user_wallet, _ = UserWallet.objects.get_or_create(user=user)
 
             if user_team_is_win:
                 game_count = get_game_count(user.id)
@@ -197,28 +197,53 @@ def match_steam_message(pattern_to_match: str, member: Any) -> str:
     return result
 
 
+def _proto_team_str(team_int: int) -> str:
+    """Convert proto team integer to string name like 'DOTA_GC_TEAM_GOOD_GUYS'."""
+    from dota2.proto_enums import DOTA_GC_TEAM
+    try:
+        return DOTA_GC_TEAM(team_int).name
+    except (ValueError, KeyError):
+        return str(team_int)
+
+
+def to_steam64(account_id: int) -> str:
+    """Convert 32-bit Dota proto account ID to 64-bit Steam ID string.
+    If already 64-bit, returns as-is."""
+    STEAM_CONST = 76561197960265728
+    if account_id < STEAM_CONST:
+        return str(account_id + STEAM_CONST)
+    return str(account_id)
+
+
 def check_slots(message: Any, good_side: int, bad_side: int, position_is_set: int) -> Tuple[int, int, int]:
     """Check how many slots are occupied for each team"""
     for member in message.all_members[1:]:
-        steam_id = match_steam_message("id", member)
-        team = match_steam_message("team", member)
-        slot = match_steam_message("slot", member)
+        steam_id = to_steam64(member.id)
+        team = _proto_team_str(member.team)
+        slot = str(member.slot)
 
-        membership = Membership.objects.filter(user__steam_id=str(steam_id)).first()
+        logger.info("check_slots: steam_id=%s team=%s slot=%s", steam_id, team, slot)
 
-        site_team = ""
-        if membership:
-            site_team = "DOTA_GC_TEAM_GOOD_GUYS" if membership.team == "1" else "DOTA_GC_TEAM_BAD_GUYS"
+        membership = Membership.objects.filter(user__steam_id=steam_id).first()
 
-            if str(site_team) == str(team):
-                if str(team) == "DOTA_GC_TEAM_GOOD_GUYS":
-                    good_side += 1
-                elif str(team) == "DOTA_GC_TEAM_BAD_GUYS":
-                    bad_side += 1
+        if not membership:
+            logger.warning("check_slots: no membership found for steam_id=%s", steam_id)
+            continue
 
-                if slot == str(membership.position):
-                    position_is_set += 1
+        site_team = "DOTA_GC_TEAM_GOOD_GUYS" if membership.team == "1" else "DOTA_GC_TEAM_BAD_GUYS"
+        logger.info("check_slots: membership found user=%s site_team=%s dota_team=%s position=%s slot=%s",
+                    membership.user_id, site_team, team, membership.position, slot)
 
+        if site_team == team:
+            if team == "DOTA_GC_TEAM_GOOD_GUYS":
+                good_side += 1
+            elif team == "DOTA_GC_TEAM_BAD_GUYS":
+                bad_side += 1
+
+            if slot == str(membership.position):
+                position_is_set += 1
+
+    logger.info("check_slots result: good=%s bad=%s position=%s", good_side, bad_side, position_is_set)
     return good_side, bad_side, position_is_set
 
 
@@ -228,35 +253,32 @@ def change_bot_status(bot_name: str, status: bool) -> None:
 
 
 def parse_and_save_steam_massage(member: Any, queryset: list) -> Tuple[list, list]:
-    """Getting member and parse information about his game from steam message and save it to model"""
-    steam_id = match_steam_message("id", member)
-    hero_id = match_steam_message("hero_id", member)
-    team = match_steam_message("team", member)
-    name = match_steam_message("name", member)
-
-    if hero_id == "":
-        hero_id = 0  # hero_id 0, so the hero is not choose
+    """Parse proto member data and create PlayerInfo. Does NOT delete Membership — caller handles cleanup."""
+    steam_id = to_steam64(member.id)
+    hero_id = member.hero_id or 0
+    team = _proto_team_str(member.team)
+    name = match_steam_message("name", member)  # 'name' field varies by proto version
 
     try:
-        membership = Membership.objects.filter(user__steam_id=str(steam_id)).first()
+        membership = Membership.objects.filter(user__steam_id=steam_id).first()
+        if not membership:
+            logger.warning('No membership found for steam_id %s — skipping PlayerInfo', steam_id)
+            return queryset, [steam_id, team]
 
         player_info_instance = PlayerInfo.objects.create(
-            steam_id=str(steam_id),
+            steam_id=steam_id,
             hero_id=str(hero_id),
-            game_team=str(team),
+            game_team=team,
             game_name=str(name),
-            team=str(membership.team),
+            team=membership.team,
             user=membership.user,
         )
-        membership.delete()
-
         queryset.append(player_info_instance)
 
     except Exception:
         logger.exception('parse_and_save_steam_massage failed for steam_id %s', steam_id)
 
-    user_info_from_dota = [steam_id, team]
-    return queryset, user_info_from_dota
+    return queryset, [steam_id, team]
 
 
 def send_block_info_to_bitrix(lobby: Lobby) -> None:

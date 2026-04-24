@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 
 from .views import *
 from .viewsets import *
-from .steam_views import steam_connect, steam_callback
+from .steam_views import steam_connect, steam_callback, steam_disconnect
 
 router = DefaultRouter()
 router.register('', CustomUserModelViewSet)
@@ -24,4 +24,5 @@ urlpatterns = [
     path('verification/', include('authentication.verification.urls')),
     path('steam/', steam_connect, name='steam-connect'),
     path('steam/callback/', steam_callback, name='steam-callback'),
+    path('steam/disconnect/', steam_disconnect, name='steam-disconnect'),
 ]

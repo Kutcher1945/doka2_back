@@ -15,6 +15,7 @@ class Lobby(models.Model):
     bet = models.IntegerField(null=True, default=None)
     match_id = models.CharField(blank=True, max_length=100, null=True)
     dota_lobby_id = models.BigIntegerField(null=True, blank=True)
+    bot_steam_id = models.CharField(blank=True, max_length=50, null=True)
     assigned_bot = models.ForeignKey('Bot', null=True, blank=True, on_delete=models.SET_NULL, related_name='lobbies')
 
     task_id = models.CharField(blank=True, max_length=100, null=True)
@@ -108,7 +109,6 @@ class Rating(models.Model):
 
     class Meta:
         constraints = [
-            CheckConstraint(check=Q(rate__range=(1, 5)), name='valid_rate'),
             UniqueConstraint(fields=['user', 'player_info'], name='rating_once')
         ]
 

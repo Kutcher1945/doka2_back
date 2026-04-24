@@ -40,9 +40,12 @@ class GameHistorySerializer(ModelSerializer):
 
 
 class LobbySerializer(ModelSerializer):
+    # dota_lobby_id is a 64-bit int that exceeds JS Number.MAX_SAFE_INTEGER — send as string
+    dota_lobby_id = serializers.CharField(allow_null=True, read_only=True)
+
     class Meta:
         model = Lobby
-        fields = ('id', 'name', 'bet', 'lobby_lvl', 'slots', 'game_mode', 'status', 'datetime_start_game', 'is_block', 'vs_bots', 'dota_lobby_id')
+        fields = ('id', 'name', 'bet', 'lobby_lvl', 'slots', 'game_mode', 'status', 'datetime_start_game', 'is_block', 'vs_bots', 'dota_lobby_id', 'bot_steam_id')
 
 
 class BotSerializer(ModelSerializer):

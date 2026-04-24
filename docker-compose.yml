@@ -25,13 +25,14 @@ services:
       - static_volume:/code/staticfiles
       - media_volume:/code/media
     ports:
-      - "8000:8000"
+      - "8001:8000"
     env_file:
       - .env
     environment:
-      DB_HOST: db
+      DB_HOST: host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      - db
       - redis
 
   celery:
@@ -44,9 +45,10 @@ services:
     env_file:
       - .env
     environment:
-      DB_HOST: db
+      DB_HOST: host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      - db
       - redis
 
 volumes:
